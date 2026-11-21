@@ -555,7 +555,7 @@ class MciBackend:
 
 
 class PygameBackend:
-    """Respaldo para Linux / macOS (requiere: pip install pygame)."""
+    """Linux / macOS si pygame esta instalado (pip install pygame)."""
     exts = (".mp3", ".ogg", ".wav", ".flac")
 
     def __init__(self):
@@ -591,11 +591,130 @@ class PygameBackend:
         return (pos, 0) if pos >= 0 else None
 
 
+class ExternalPlayerBackend:
+    """Linux / macOS sin instalar nada: usa un reproductor del sistema
+    (mpv, ffplay, vlc, mpg123, pw-play, paplay o afplay) como proceso aparte."""
+    import signal as _signal
+
+    # (programa, argumentos, extensiones que soporta)
+    PLAYERS = [
+        ("mpv", ["--no-video", "--really-quiet", "--no-terminal"], (".mp3", ".ogg", ".wav", ".flac", ".m4a", ".opus", ".wma")),
+        ("ffplay", ["-nodisp", "-autoexit", "-loglevel", "quiet"], (".mp3", ".ogg", ".wav", ".flac", ".m4a", ".opus", ".wma")),
+        ("cvlc", ["--play-and-exit", "--no-video", "-q"], (".mp3", ".ogg", ".wav", ".flac", ".m4a", ".opus", ".wma")),
+        ("afplay", [], (".mp3", ".wav", ".m4a", ".flac")),
+        ("mpg123", ["-q"], (".mp3",)),
+        ("pw-play", [], (".wav", ".ogg", ".flac")),
+        ("paplay", [], (".wav", ".ogg", ".flac")),
+    ]
+
+    def __init__(self):
+        for name, args, exts in self.PLAYERS:
+            exe = shutil.which(name)
+            if exe:
+                self.cmd = [exe] + args
+                self.exts = exts
+                break
+        else:
+            raise RuntimeError("no hay reproductor de audio")
+        self._ffprobe = shutil.which("ffprobe")
+        self._proc = None
+        self._path = None
+        self._length = 0
+        self._started = 0.0
+        self._paused_at = None
+        import atexit
+        atexit.register(self.unload)
+
+    def _duration(self, path):
+        if not self._ffprobe:
+            return 0
+        import subprocess
+        try:
+            out = subprocess.run(
+                [self._ffprobe, "-v", "quiet", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", path],
+                capture_output=True, text=True, timeout=3).stdout
+            return int(float(out.strip()) * 1000)
+        except (ValueError, OSError, subprocess.SubprocessError):
+            return 0
+
+    def load(self, path):
+        self.unload()
+        if not os.path.isfile(path):
+            return False
+        self._path = path
+        self._length = self._duration(path)
+        return True
+
+    def play(self):
+        import subprocess
+        self.unload_proc()
+        try:
+            # sesion propia: Ctrl+C en el juego no mata la cancion a medias
+            self._proc = subprocess.Popen(
+                self.cmd + [self._path], stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        except OSError:
+            self._proc = None
+        self._started = time.monotonic()
+        self._paused_at = None
+
+    def _signal_proc(self, sig):
+        if self._proc and self._proc.poll() is None:
+            try:
+                os.kill(self._proc.pid, sig)
+            except OSError:
+                pass
+
+    def pause(self):
+        if self._paused_at is None:
+            self._signal_proc(self._signal.SIGSTOP)
+            self._paused_at = time.monotonic()
+
+    def resume(self):
+        if self._paused_at is not None:
+            self._signal_proc(self._signal.SIGCONT)
+            self._started += time.monotonic() - self._paused_at
+            self._paused_at = None
+
+    def unload_proc(self):
+        if self._proc:
+            self._signal_proc(self._signal.SIGCONT)
+            self._signal_proc(self._signal.SIGTERM)
+            try:
+                self._proc.wait(timeout=1)
+            except Exception:
+                self._signal_proc(self._signal.SIGKILL)
+            self._proc = None
+
+    def unload(self):
+        self.unload_proc()
+        self._paused_at = None
+
+    def is_finished(self):
+        return self._proc is None or self._proc.poll() is not None
+
+    def progress(self):
+        if not self._proc:
+            return None
+        now = self._paused_at if self._paused_at is not None else time.monotonic()
+        pos = int((now - self._started) * 1000)
+        if self._length:
+            pos = min(pos, self._length)
+        return pos, self._length
+
+
 def make_backend():
-    try:
-        return MciBackend() if IS_WINDOWS else PygameBackend()
-    except Exception:
-        return None
+    if IS_WINDOWS:
+        candidates = (MciBackend,)
+    else:
+        candidates = (PygameBackend, ExternalPlayerBackend)
+    for backend in candidates:
+        try:
+            return backend()
+        except Exception:
+            pass
+    return None
 
 
 class MusicPlayer:
@@ -976,7 +1095,7 @@ class Game:
                     self.music.scan()
                     self.mode = "music"
                     if not self.music.backend:
-                        self.say("No hay reproductor de audio disponible (en Linux/macOS: pip install pygame).")
+                        self.say("No hay reproductor de audio. En Linux instala mpv o ffmpeg (o: pip install pygame).")
                     elif not self.music.songs:
                         self.say("La carpeta 'music' está vacía. Pon ahí tus canciones (.mp3, .wav...).")
                 elif choice == "Salir":

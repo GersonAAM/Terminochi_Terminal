@@ -1,10 +1,13 @@
 # TERMINOCHI
 
-Mascota virtual para la terminal, hecha con ASCII art. Solo usa Python 3 (sin instalar nada en Windows).
+Mascota virtual para la terminal, hecha con ASCII art. Solo usa Python 3, sin instalar nada más. Funciona en **Windows** y **Linux** (también macOS) con el mismo código.
 
-```
-python terminochi.py      # o doble clic en jugar.bat
-```
+| Sistema | Cómo jugar |
+|---|---|
+| Windows | doble clic en `jugar.bat` (o `python terminochi.py`) |
+| Linux / macOS | `./jugar.sh` en una terminal (la primera vez: `chmod +x jugar.sh`), o `sh jugar.sh` |
+
+`jugar.sh` es un script POSIX `sh`, así que funciona en cualquier distro (Debian/Ubuntu, Fedora, Arch, openSUSE...). Busca `python3`, fuerza UTF-8 y, si lo abres con doble clic desde el gestor de archivos, se abre solo en una terminal.
 
 ![Michi bailando en el jardín](docs/capturas/baile.gif)
 
@@ -29,4 +32,8 @@ La interfaz mide **102 × 29** caracteres: si la ventana es más pequeña, el ju
 
 La partida se guarda sola en `terminochi_save.json` (cada 20 s, en cada acción y al salir). La mascota no vive en segundo plano: el tiempo solo avanza mientras el juego está abierto. Borra ese archivo para empezar con otra mascota.
 
-En Linux/macOS la música necesita `pip install pygame`.
+### Música en Linux / macOS
+No hace falta instalar nada de Python: el juego usa el primer reproductor que encuentre en el sistema:
+`mpv`, `ffplay` (de ffmpeg), `cvlc` (VLC), `afplay` (macOS), `mpg123`, `pw-play` o `paplay`.
+Si `pygame` está instalado, se usa ese. Si no tienes ninguno, instala por ejemplo `mpv`
+(`sudo apt install mpv`, `sudo dnf install mpv`, `sudo pacman -S mpv`). Con `ffprobe` (viene con ffmpeg) además se muestra la duración de la canción.
